@@ -1,17 +1,22 @@
-#![allow(unused)]
+// #![allow(unused)]
 
 mod player;
 use bevy::prelude::*;
+use crate::player::PlayerPlugin;
 
 const PLAYER_SPRITE: &str = "player_a_01.png";
 const LASER_SPRITE: &str = "laser_a_01.png";
 const TIME_STEP: f32 = 1. / 60.;
+const SCALE: f32 = 0.5;
 
 pub struct Materials{
     player: Handle<ColorMaterial>,
     laser: Handle<ColorMaterial>,
 }
-struct WinSize(f32, f32);
+struct WinSize{
+    w: f32,
+    h: f32,
+}
 
 struct Player;
 struct PlayerReadyFire(bool);
@@ -34,14 +39,8 @@ fn main() {
             ..Default::default()
         })
         .add_plugins(DefaultPlugins)
+        .add_plugin(PlayerPlugin)
         .add_startup_system(setup.system())
-        .add_startup_stage(
-            "game_setup_actors",
-            SystemStage::single(player_spawn.system()),
-        )
-        .add_system(player_movement.system())
-        .add_system(player_fire.system())
-        .add_system(laser_movement.system())
         .run();
 }
 
@@ -59,7 +58,7 @@ fn setup(mut commands: Commands,
         player: materials.add(asset_server.load(PLAYER_SPRITE).into()),
         laser: materials.add(asset_server.load(LASER_SPRITE).into()),
     });
-    commands.insert_resource(WinSize(window.height(), window.width()));
+    commands.insert_resource(WinSize{w: window.height(), h: window.width()});
 
     //window
 
