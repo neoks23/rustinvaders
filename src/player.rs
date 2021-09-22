@@ -27,7 +27,8 @@ fn player_spawn(mut commands: Commands,
                 win_size: Res<WinSize>,
                 materials: Res<Materials>,
                 time: Res<Time>,
-                mut player_state: ResMut<PlayerState>,) {
+                mut player_state: ResMut<PlayerState>,)
+{
     let now = time.seconds_since_startup();
     let last_shot = player_state.last_shot;
 
@@ -47,7 +48,8 @@ fn player_spawn(mut commands: Commands,
         })
         .insert(Player)
         .insert(PlayerReadyFire(true))
-        .insert(Speed::default());
+        .insert(Speed::default())
+        .insert(Timer::from_seconds(1.00, true));
         player_state.spawned();
     }
 }
@@ -71,11 +73,12 @@ fn player_movement(
 
 fn player_fire(
     mut commands: Commands,
+    time: Res<Time>,
     kb: Res<Input<KeyCode>>,
     materials: Res<Materials>,
-    mut query: Query<(&Transform,&mut PlayerReadyFire, With<Player>)>
+    mut query: Query<(&Transform,&mut PlayerReadyFire, &mut Timer, With<Player>)>
 ){
-    if let Ok((player_tf, mut ready_fire,_)) = query.single_mut(){
+    if let Ok((player_tf, mut ready_fire, mut timer, _)) = query.single_mut(){
         if ready_fire.0 && kb.pressed(KeyCode::Space){
             let x = player_tf.translation.x;
             let y = player_tf.translation.y;
@@ -101,7 +104,10 @@ fn player_fire(
             ready_fire.0 = false;
         }
 
-        if kb.just_released(KeyCode::Space){
+        if !ready_fire.0 {
+            timer.tick(time.delta());
+        }
+        if kb.just_released(KeyCode::Space) || timer.finished(){
             ready_fire.0 = true;
         }
     }

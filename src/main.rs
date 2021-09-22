@@ -7,14 +7,14 @@ use crate::{enemy::EnemyPlugin, player::PlayerPlugin};
 use bevy::sprite::collide_aabb::collide;
 use std::collections::HashSet;
 
-const PLAYER_SPRITE: &str = "player_a_01.png";
+const PLAYER_SPRITE: &str = "player_b_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
 const ENEMY_SPRITE: &str = "enemy_a_01.png";
 const ENEMY_LASER_SPRITE: &str = "laser_b_01.png";
 const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
 const TIME_STEP: f32 = 1. / 60.;
 const SCALE: f32 = 0.5;
-const MAX_ENEMIES: u32 = 3;
+const MAX_ENEMIES: u32 = 4;
 const MAX_FORMATION_MEMBERS: u32 = 2;
 const PLAYER_RESPAWN_DELAY: f64 = 2.;
 
