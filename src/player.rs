@@ -49,7 +49,7 @@ fn player_spawn(mut commands: Commands,
         .insert(Player)
         .insert(PlayerReadyFire(true))
         .insert(Speed::default())
-        .insert(Timer::from_seconds(1.00, true));
+        .insert(Timer::from_seconds(0.5, true));
         player_state.spawned();
     }
 }
