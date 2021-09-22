@@ -114,10 +114,15 @@ fn setup(mut commands: Commands,
 
     commands
         .spawn_bundle(TextBundle {
+
             style: Style {
+                align_self: AlignSelf::Center,
+
                 position_type: PositionType::Absolute,
-                align_content: AlignContent::Center,
-                size: Size::new(Val::Px(598.),Val::Px(676.)),
+                position: Rect{
+                    left: Val::Px((window.width() / 2.) - 110.),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             // Use the `Text::with_section` constructor
