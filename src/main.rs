@@ -6,6 +6,8 @@ use bevy::prelude::*;
 use crate::{enemy::EnemyPlugin, player::PlayerPlugin};
 use bevy::sprite::collide_aabb::collide;
 use std::collections::HashSet;
+use bevy_inspector_egui::{Inspectable, InspectorPlugin};
+use bevy_inspector_egui::widgets::InspectorQuerySingle;
 
 const PLAYER_SPRITE: &str = "player_c_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -74,6 +76,8 @@ impl Default for Speed {
         Self(500.)
     }
 }
+#[derive(Inspectable, Default)]
+struct ColorText;
 
 fn main() {
     App::build()
@@ -88,6 +92,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(PlayerPlugin)
         .add_plugin(EnemyPlugin)
+        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<ColorText>>>::new())
         .add_startup_system(setup.system())
         .add_system(player_laser_hit_enemy.system())
         .add_system(enemy_laser_hit_player.system())
@@ -105,6 +110,34 @@ fn setup(mut commands: Commands,
     let mut window = windows.get_primary_mut().unwrap();
     //camera
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
+    commands.spawn_bundle(UiCameraBundle::default());
+
+    commands
+        .spawn_bundle(TextBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                align_content: AlignContent::Center,
+                size: Size::new(Val::Px(598.),Val::Px(676.)),
+                ..Default::default()
+            },
+            // Use the `Text::with_section` constructor
+            text: Text::with_section(
+                // Accepts a `String` or any type that converts into a `String`, such as `&str`
+                "pause",
+                TextStyle {
+                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                    font_size: 100.0,
+                    color: Color::WHITE,
+                },
+                // Note: You can use `Default::default()` in place of the `TextAlignment`
+                TextAlignment {
+                    horizontal: HorizontalAlign::Center,
+                    ..Default::default()
+                },
+            ),
+            ..Default::default()
+        })
+        .insert(ColorText);
 
     //create main resources
     let texture_handle = asset_server.load(EXPLOSION_SHEET);
