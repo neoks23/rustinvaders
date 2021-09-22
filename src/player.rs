@@ -1,22 +1,39 @@
-use bevy::prelude::*;
+use bevy::{core::FixedTimestep, prelude::*};
 
-use crate::{Laser, Materials, Player, PlayerReadyFire, Speed, WinSize, SCALE, TIME_STEP, FromPlayer};
+use crate::{Laser, Materials, Player, PlayerReadyFire, Speed, WinSize, SCALE, TIME_STEP, FromPlayer, PlayerState, PLAYER_RESPAWN_DELAY};
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin{
     fn build(&self, app: &mut AppBuilder){
-        app.add_startup_stage(
+        app
+            .insert_resource(PlayerState::default())
+            .add_startup_stage(
             "game_setup_actors",
             SystemStage::single(player_spawn.system()),
         )
             .add_system(player_movement.system())
             .add_system(player_fire.system())
-            .add_system(laser_movement.system());
+            .add_system(laser_movement.system())
+            .add_system_set(
+                SystemSet::new()
+                    .with_run_criteria(FixedTimestep::step(0.5))
+                    .with_system(player_spawn.system())
+            );
     }
 }
 
-fn player_spawn(mut commands: Commands, win_size: Res<WinSize>, materials: Res<Materials>) {
+fn player_spawn(mut commands: Commands,
+                win_size: Res<WinSize>,
+                materials: Res<Materials>,
+                time: Res<Time>,
+                mut player_state: ResMut<PlayerState>,) {
+    let now = time.seconds_since_startup();
+    let last_shot = player_state.last_shot;
+
+    //spawn a sprite
+
+    if !player_state.on && (last_shot == 0. || now > last_shot + PLAYER_RESPAWN_DELAY){
     let bottom = -win_size.h / 2.;
     commands
         .spawn_bundle(SpriteBundle {
@@ -31,6 +48,8 @@ fn player_spawn(mut commands: Commands, win_size: Res<WinSize>, materials: Res<M
         .insert(Player)
         .insert(PlayerReadyFire(true))
         .insert(Speed::default());
+        player_state.spawned();
+    }
 }
 
 fn player_movement(

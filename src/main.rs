@@ -5,6 +5,7 @@ mod enemy;
 use bevy::prelude::*;
 use crate::{enemy::EnemyPlugin, player::PlayerPlugin};
 use bevy::sprite::collide_aabb::collide;
+use std::collections::HashSet;
 
 const PLAYER_SPRITE: &str = "player_a_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -13,6 +14,9 @@ const ENEMY_LASER_SPRITE: &str = "laser_b_01.png";
 const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
 const TIME_STEP: f32 = 1. / 60.;
 const SCALE: f32 = 0.5;
+const MAX_ENEMIES: u32 = 3;
+const MAX_FORMATION_MEMBERS: u32 = 2;
+const PLAYER_RESPAWN_DELAY: f64 = 2.;
 
 pub struct Materials{
     player: Handle<ColorMaterial>,
@@ -27,6 +31,30 @@ struct WinSize{
     h: f32,
 }
 struct ActiveEnemies(u32);
+struct PlayerState{
+    on: bool,
+    last_shot: f64,
+}
+
+impl Default for PlayerState{
+    fn default() -> Self {
+        Self{
+            on: false,
+            last_shot: 0.,
+        }
+    }
+}
+impl PlayerState{
+    fn shot(&mut self, time: f64){
+        self.on = false;
+        self.last_shot = time;
+    }
+
+    fn spawned(&mut self){
+        self.on = true;
+        self.last_shot = 0.;
+    }
+}
 
 struct Laser;
 
@@ -61,7 +89,8 @@ fn main() {
         .add_plugin(PlayerPlugin)
         .add_plugin(EnemyPlugin)
         .add_startup_system(setup.system())
-        .add_system(laser_hit_enemy.system())
+        .add_system(player_laser_hit_enemy.system())
+        .add_system(enemy_laser_hit_player.system())
         .add_system(explosion_to_spawn.system())
         .add_system(animate_explosion.system())
         .run();
@@ -95,12 +124,13 @@ fn setup(mut commands: Commands,
     //spawn a sprite
 }
 
-fn laser_hit_enemy(
+fn player_laser_hit_enemy(
     mut commands: Commands,
     mut laser_query: Query<(Entity, &Transform, &Sprite,(With<Laser>, With<FromPlayer>))>,
     mut enemy_query: Query<(Entity, &Transform, &Sprite, With<Enemy>)>,
     mut active_enemies: ResMut<ActiveEnemies>,
 ){
+    let mut enemies_blasted: HashSet<Entity> = HashSet::new();
     for(laser_entity, laser_tf, laser_sprite, _) in laser_query.iter_mut(){
         for(enemy_entity, enemy_tf, enemy_sprite, _) in enemy_query.iter_mut(){
             let laser_scale = Vec2::from(laser_tf.scale);
@@ -113,22 +143,60 @@ fn laser_hit_enemy(
             );
 
             if let Some(_) = collision {
-                // remove the enemy
-                commands.entity(enemy_entity).despawn();
-                active_enemies.0 -= 1;
+
+                if enemies_blasted.get(&enemy_entity).is_none() {
+                    // remove the enemy
+                    commands.entity(enemy_entity).despawn();
+                    active_enemies.0 -= 1;
+
+                    //Spawn explosion
+                    commands
+                        .spawn()
+                        .insert(ExplosionToSpawn(enemy_tf.translation.clone()));
+
+                    enemies_blasted.insert(enemy_entity);
+                }
 
                 // remove the laser
                 commands.entity(laser_entity).despawn();
 
-                //Spawn explosion
-                commands.
-                    spawn()
-                    .insert(ExplosionToSpawn(enemy_tf.translation.clone()));
             }
         }
     }
 }
+fn enemy_laser_hit_player(
+    mut commands: Commands,
+    mut player_state: ResMut<PlayerState>,
+    time: Res<Time>,
+    laser_query: Query<(Entity, &Transform, &Sprite), (With<Laser>, With<FromEnemy>)>,
+    player_query: Query<(Entity, &Transform, &Sprite), With<Player>>,
+){
+    if let Ok((player_entity, player_tf, player_sprite)) = player_query.single(){
+        let player_size = player_sprite.size * Vec2::from(player_tf.scale.abs());
 
+        for (laser_entity, laser_tf, laser_sprite) in laser_query.iter(){
+            let laser_size = laser_sprite.size * Vec2::from(laser_tf.scale.abs());
+
+            let collision = collide(
+                laser_tf.translation,
+                laser_size,
+                player_tf.translation,
+                player_size,
+            );
+
+            if let Some(_) = collision{
+                commands.entity(player_entity).despawn();
+                player_state.shot(time.seconds_since_startup());
+
+                commands.entity(laser_entity).despawn();
+
+                commands
+                    .spawn()
+                    .insert(ExplosionToSpawn(player_tf.translation.clone()));
+            }
+        }
+    }
+}
 fn explosion_to_spawn(
     mut commands: Commands,
     query: Query<(Entity, &ExplosionToSpawn)>,
