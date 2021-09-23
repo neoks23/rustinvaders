@@ -1,11 +1,13 @@
 use bevy::{core::FixedTimestep, prelude::*};
 
-use crate::{Laser, Materials, Player, PlayerReadyFire, Speed, WinSize, SCALE, TIME_STEP, FromPlayer, PlayerState, PLAYER_RESPAWN_DELAY};
+use crate::{Laser, Materials, Player, PlayerReadyFire, Speed, WinSize, SCALE, TIME_STEP, FromPlayer, PlayerState, PLAYER_RESPAWN_DELAY, PauseState, GameState, LaserSpeed};
+use bevy_inspector_egui::InspectableRegistry;
 
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin{
     fn build(&self, app: &mut AppBuilder){
+
         app
             .insert_resource(PlayerState::default())
             .add_startup_stage(
@@ -26,6 +28,7 @@ impl Plugin for PlayerPlugin{
 fn player_spawn(mut commands: Commands,
                 win_size: Res<WinSize>,
                 materials: Res<Materials>,
+                game_state: Res<GameState>,
                 time: Res<Time>,
                 mut player_state: ResMut<PlayerState>,)
 {
@@ -49,25 +52,31 @@ fn player_spawn(mut commands: Commands,
         .insert(Player)
         .insert(PlayerReadyFire(true))
         .insert(Speed::default())
-        .insert(Timer::from_seconds(0.5, true));
+        .insert(LaserSpeed::default())
+        .insert(Timer::from_seconds(0.5, true))
+        .insert(if game_state.0 == "active" {PauseState::default()} else {PauseState(true)});
         player_state.spawned();
     }
 }
 
 fn player_movement(
     keyboard_input: Res<Input<KeyCode>>,
-    mut query: Query<(&Speed, &mut Transform, With<Player>)>
+    win_size: Res<WinSize>,
+    mut query: Query<(&PauseState, &Speed, &mut Transform, With<Player>)>
 ){
 
-    if let Ok((speed, mut transform, _)) = query.single_mut(){
-        let dir = if keyboard_input.pressed(KeyCode::A){
-            -1.
-        } else if keyboard_input.pressed(KeyCode::D){
-            1.
-        } else{
-            0.
-        };
-        transform.translation.x += dir * speed.0 * TIME_STEP;
+    if let Ok((pause, speed, mut transform, _)) = query.single_mut(){
+
+        if !pause.0{
+            let dir = if keyboard_input.pressed(KeyCode::A) && transform.translation.x - 75.0 > -win_size.w / 2.{
+                -1.
+            } else if keyboard_input.pressed(KeyCode::D) && transform.translation.x + 75.0 < win_size.w / 2.{
+                1.
+            } else{
+                0.
+            };
+            transform.translation.x += dir * speed.v * TIME_STEP;
+        }
     }
 }
 
@@ -76,10 +85,10 @@ fn player_fire(
     time: Res<Time>,
     kb: Res<Input<KeyCode>>,
     materials: Res<Materials>,
-    mut query: Query<(&Transform,&mut PlayerReadyFire, &mut Timer, With<Player>)>
+    mut query: Query<(&Transform,&PauseState,&LaserSpeed,&mut PlayerReadyFire, &mut Timer, With<Player>)>
 ){
-    if let Ok((player_tf, mut ready_fire, mut timer, _)) = query.single_mut(){
-        if ready_fire.0 && kb.pressed(KeyCode::Space){
+    if let Ok((player_tf, pause_state,lspeed, mut ready_fire, mut timer, _)) = query.single_mut(){
+        if ready_fire.0 && kb.pressed(KeyCode::Space) && !pause_state.0{
             let x = player_tf.translation.x;
             let y = player_tf.translation.y;
 
@@ -94,7 +103,8 @@ fn player_fire(
                 })
                     .insert(Laser)
                     .insert(FromPlayer)
-                    .insert(Speed::default());
+                    .insert(Speed{v: lspeed.v})
+                    .insert(PauseState::default());;
 
             };
             let x_offset = 144.0 / 4.0 - 5.0;
@@ -116,13 +126,16 @@ fn player_fire(
 fn laser_movement(
     mut commands: Commands,
     win_size: Res<WinSize>,
-    mut query: Query<(Entity, &Speed, &mut Transform, (With<Laser>, With<FromPlayer>))>
+    mut query: Query<(Entity, &PauseState, &Speed, &mut Transform, (With<Laser>, With<FromPlayer>))>
 ){
-    for (laser_entity, speed, mut laser_tf, _) in query.iter_mut(){
-        let translation = &mut laser_tf.translation;
-        translation.y += speed.0 * TIME_STEP;
-        if translation.y > win_size.h{
-            commands.entity(laser_entity).despawn();
+    for (laser_entity,pause, speed, mut laser_tf, _) in query.iter_mut(){
+
+        if !pause.0{
+            let translation = &mut laser_tf.translation;
+            translation.y += speed.v * TIME_STEP;
+            if translation.y > win_size.h{
+                commands.entity(laser_entity).despawn();
+            }
         }
     }
 }

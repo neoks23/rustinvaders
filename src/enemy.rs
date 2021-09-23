@@ -1,11 +1,13 @@
 use bevy::{core::FixedTimestep, prelude::*};
-use crate::{WinSize, Materials, ActiveEnemies, Enemy, SCALE, Laser, FromEnemy, Speed, TIME_STEP, MAX_ENEMIES, MAX_FORMATION_MEMBERS};
+use crate::{WinSize, Materials, ActiveEnemies, Enemy, SCALE, Laser, FromEnemy, Speed, TIME_STEP, MAX_ENEMIES, MAX_FORMATION_MEMBERS, PauseState, GameState, LaserSpeed};
 use rand::{thread_rng, Rng};
 use std::f32::consts::PI;
+use bevy_inspector_egui::{Inspectable, InspectorPlugin, WorldInspectorPlugin};
+use bevy_inspector_egui::widgets::{InspectorQuerySingle, InspectorQuery};
 
 pub struct EnemyPlugin;
 
-#[derive(Default, Clone)]
+#[derive(Inspectable, Default, Clone)]
 struct Formation{
     start: (f32, f32),
     radius: (f32, f32),
@@ -14,7 +16,7 @@ struct Formation{
     group_id: u32,
 }
 
-#[derive(Default)]
+#[derive(Inspectable, Default)]
 struct FormationMaker{
     group_seq: u32,
     current_formation: Option<Formation>,
@@ -75,15 +77,12 @@ impl Plugin for EnemyPlugin{
             .insert_resource(FormationMaker::default())
             .add_system(enemy_laser_movement.system())
             .add_system(enemy_movement.system())
+            .add_system(enemy_fire.system())
             .add_system_set(
             SystemSet::new()
                 .with_run_criteria(FixedTimestep::step(1.0))
                 .with_system(enemy_spawn.system()),
-        ).add_system_set(
-            SystemSet::new()
-                .with_run_criteria(FixedTimestep::step(0.9))
-                .with_system(enemy_fire.system())
-        );
+            );
     }
 }
 
@@ -91,6 +90,7 @@ fn enemy_spawn(
     mut commands: Commands,
     mut active_enemies: ResMut<ActiveEnemies>,
     mut formation_maker: ResMut<FormationMaker>,
+    game_state: Res<GameState>,
     win_size: Res<WinSize>,
     materials: Res<Materials>
 ) {
@@ -111,7 +111,10 @@ fn enemy_spawn(
             })
             .insert(Enemy)
             .insert(Speed::default())
-            .insert(formation);
+            .insert(LaserSpeed::default())
+            .insert(Timer::from_seconds(0.9, true))
+            .insert(formation)
+            .insert(if game_state.0 == "active" {PauseState::default()} else {PauseState(true)});
 
         active_enemies.0 += 1;
     }
@@ -119,87 +122,97 @@ fn enemy_spawn(
 
 fn enemy_movement(
     time: Res<Time>,
-    mut query: Query<(&mut Transform, &Speed, &mut Formation), With<Enemy>>
+    mut query: Query<(&mut Transform, &PauseState, &Speed, &mut Formation), With<Enemy>>
 ){
     //foreach enemy
-    for (mut tf, speed, mut formation) in query.iter_mut(){
-        let max_distance = TIME_STEP * speed.0;
-        let x_org = tf.translation.x;
-        let y_org = tf.translation.y;
+    for (mut tf, pause, speed, mut formation) in query.iter_mut(){
 
-        //ellipse
-        let (x_offset, y_offset) = formation.offset;
-        let (x_radius, y_radius) = formation.radius;
+        if !pause.0 {
+            let max_distance = TIME_STEP * speed.v;
+            let x_org = tf.translation.x;
+            let y_org = tf.translation.y;
 
-        // Compute the next angle
-        let dir = if formation.start.0 > 0. { 1. } else { -1. };
-        let angle = formation.angle + dir * speed.0 * TIME_STEP / (x_radius.min(y_radius) * PI / 2.);
+            //ellipse
+            let (x_offset, y_offset) = formation.offset;
+            let (x_radius, y_radius) = formation.radius;
 
-        // Calculate destination
-        let x_dst = x_radius * angle.cos() + x_offset;
-        let y_dst = y_radius * angle.sin() + y_offset;
+            // Compute the next angle
+            let dir = if formation.start.0 > 0. { 1. } else { -1. };
+            let angle = formation.angle + dir * speed.v * TIME_STEP / (x_radius.min(y_radius) * PI / 2.);
 
-        //Calculate distance
-        let dx = x_org - x_dst;
-        let dy = y_org - y_dst;
-        let distance = (dx * dx + dy * dy).sqrt();
+            // Calculate destination
+            let x_dst = x_radius * angle.cos() + x_offset;
+            let y_dst = y_radius * angle.sin() + y_offset;
 
-        let distance_ratio = if distance == 0. {
-            0.
-        } else{
-            max_distance / distance
-        };
+            //Calculate distance
+            let dx = x_org - x_dst;
+            let dy = y_org - y_dst;
+            let distance = (dx * dx + dy * dy).sqrt();
 
-        //Calculate final x/y
-        let x = x_org - dx * distance_ratio;
-        let x = if dx > 0. { x.max(x_dst) } else { x.min(x_dst) };
-        let y = y_org - dy * distance_ratio;
-        let y = if dy > 0. { y.max(y_dst) } else { y.min(y_dst) };
+            let distance_ratio = if distance == 0. {
+                0.
+            } else{
+                max_distance / distance
+            };
 
-        // start rotating the formation angle only when sprite are on or close to destination
-        if distance < max_distance * speed.0 / 20. {
-            formation.angle = angle;
+            //Calculate final x/y
+            let x = x_org - dx * distance_ratio;
+            let x = if dx > 0. { x.max(x_dst) } else { x.min(x_dst) };
+            let y = y_org - dy * distance_ratio;
+            let y = if dy > 0. { y.max(y_dst) } else { y.min(y_dst) };
+
+            // start rotating the formation angle only when sprite are on or close to destination
+            if distance < max_distance * speed.v / 20. {
+                formation.angle = angle;
+            }
+
+            tf.translation.x = x;
+            tf.translation.y = y;
         }
-
-        tf.translation.x = x;
-        tf.translation.y = y;
     }
 }
 
 fn enemy_fire(
     mut commands: Commands,
+    time: Res<Time>,
     materials: Res<Materials>,
-    enemy_query: Query<&Transform, With<Enemy>>
+    mut enemy_query: Query<(&Transform,&PauseState, &mut Timer, &LaserSpeed), With<Enemy>>
 ){
-    for &tf in enemy_query.iter(){
-        let x = tf.translation.x;
-        let y = tf.translation.y;
-        //spawn enemy laser sprite
-        commands
-            .spawn_bundle(SpriteBundle{
-                material: materials.enemy_laser.clone(),
-                transform: Transform{
-                    translation: Vec3::new(x, y - 15., 0.),
-                    scale: Vec3::new(SCALE, -SCALE, 1.),
+    for (&tf, pause,mut timer, lspeed) in enemy_query.iter_mut(){
+        timer.tick(time.delta());
+        if !pause.0 && timer.finished() {
+            let x = tf.translation.x;
+            let y = tf.translation.y;
+            //spawn enemy laser sprite
+            commands
+                .spawn_bundle(SpriteBundle{
+                    material: materials.enemy_laser.clone(),
+                    transform: Transform{
+                        translation: Vec3::new(x, y - 15., 0.),
+                        scale: Vec3::new(SCALE, -SCALE, 1.),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                ..Default::default()
-            })
-            .insert(Laser)
-            .insert(FromEnemy)
-            .insert(Speed::default());
+                })
+                .insert(Laser)
+                .insert(FromEnemy)
+                .insert(Speed{v: lspeed.v})
+                .insert(PauseState::default());
+        }
     }
 }
 
 fn enemy_laser_movement(
     mut commands: Commands,
     win_size: Res<WinSize>,
-    mut laser_query: Query<(Entity, &Speed, &mut Transform), (With<Laser>, With<FromEnemy>)>
+    mut laser_query: Query<(Entity,&PauseState, &Speed, &mut Transform), (With<Laser>, With<FromEnemy>)>
 ){
-    for (entity, speed, mut tf) in laser_query.iter_mut() {
-        tf.translation.y -= speed.0 * TIME_STEP;
-        if tf.translation.y < -win_size.h / 2. - 50. {
-            commands.entity(entity).despawn();
+    for (entity, pause, speed, mut tf) in laser_query.iter_mut() {
+        if !pause.0{
+            tf.translation.y -= speed.v * TIME_STEP;
+            if tf.translation.y < -win_size.h / 2. - 50. {
+                commands.entity(entity).despawn();
+            }
         }
     }
 }

@@ -6,8 +6,9 @@ use bevy::prelude::*;
 use crate::{enemy::EnemyPlugin, player::PlayerPlugin};
 use bevy::sprite::collide_aabb::collide;
 use std::collections::HashSet;
-use bevy_inspector_egui::{Inspectable, InspectorPlugin};
-use bevy_inspector_egui::widgets::InspectorQuerySingle;
+use bevy_inspector_egui::{Inspectable, InspectorPlugin, WorldInspectorPlugin, InspectableRegistry};
+use bevy_inspector_egui::widgets::{InspectorQuerySingle, InspectorQuery};
+use bevy_inspector_egui::plugin::InspectorWindows;
 
 const PLAYER_SPRITE: &str = "player_c_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -33,6 +34,7 @@ struct WinSize{
     h: f32,
 }
 struct ActiveEnemies(u32);
+
 struct PlayerState{
     on: bool,
     last_shot: f64,
@@ -64,24 +66,57 @@ struct Player;
 struct PlayerReadyFire(bool);
 struct FromPlayer;
 
+#[derive(Inspectable, Default)]
 struct Enemy;
 struct FromEnemy;
 
 struct Explosion;
 struct ExplosionToSpawn(Vec3);
 
-struct Speed(f32);
-impl Default for Speed {
+#[derive(Inspectable)]
+struct PauseState(bool);
+#[derive(Inspectable)]
+struct GameState(String);
+
+impl Default for PauseState{
     fn default() -> Self {
-        Self(500.)
+        PauseState(false)
+    }
+} 
+
+#[derive(Inspectable)]
+struct Speed{
+    #[inspectable(min = 0.0, max = 1000.0)]
+    v: f32,
+}
+
+impl Default for Speed{
+    fn default() -> Self {
+        Speed{v: 500.}
     }
 }
+
+#[derive(Inspectable)]
+struct LaserSpeed{
+    #[inspectable(min = 0.0, max = 1000.0)]
+    v: f32,
+}
+
+impl Default for LaserSpeed{
+    fn default() -> Self {
+        LaserSpeed{v: 500.}
+    }
+}
+
 #[derive(Inspectable, Default)]
-struct ColorText;
+struct PauseText;
 
 fn main() {
-    App::build()
-        .insert_resource(ClearColor(Color::rgb(0.04,0.04,0.04)))
+    let mut app = App::build();
+
+
+        app.insert_resource(ClearColor(Color::rgb(0.04,0.04,0.04)))
+        .insert_resource(GameState("active".to_string()))
         .insert_resource(WindowDescriptor{
             title: "Rust Invaders".to_string(),
             width: 598.,
@@ -92,13 +127,29 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(PlayerPlugin)
         .add_plugin(EnemyPlugin)
-        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<ColorText>>>::new())
+        .add_plugin(InspectorPlugin::<InspectorQuery<(Entity), With<Enemy>>>::new())
+        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<PauseText>>>::new())
+        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
+        .add_startup_system(inspector_window_setup.system())
         .add_system(player_laser_hit_enemy.system())
         .add_system(enemy_laser_hit_player.system())
         .add_system(explosion_to_spawn.system())
         .add_system(animate_explosion.system())
-        .run();
+        .add_system(pause_game.system());
+
+        let mut registry = app
+            .world_mut()
+            .get_resource_or_insert_with(InspectableRegistry::default);
+
+        // registering custom component to be able to edit it in inspector
+        registry.register::<Speed>();
+        registry.register::<PauseState>();
+        registry.register::<LaserSpeed>();
+
+
+
+        app.run();
 }
 
 fn setup(mut commands: Commands,
@@ -111,10 +162,12 @@ fn setup(mut commands: Commands,
     //camera
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
     commands.spawn_bundle(UiCameraBundle::default());
-
     commands
         .spawn_bundle(TextBundle {
-
+            visible: Visible{
+                is_visible: false,
+                is_transparent: false,
+            },
             style: Style {
                 align_self: AlignSelf::Center,
 
@@ -142,7 +195,7 @@ fn setup(mut commands: Commands,
             ),
             ..Default::default()
         })
-        .insert(ColorText);
+        .insert(PauseText);
 
     //create main resources
     let texture_handle = asset_server.load(EXPLOSION_SHEET);
@@ -161,6 +214,12 @@ fn setup(mut commands: Commands,
 
     //spawn a sprite
 }
+fn inspector_window_setup(
+    mut inspector_windows: ResMut<InspectorWindows>
+){
+
+}
+
 
 fn player_laser_hit_enemy(
     mut commands: Commands,
@@ -282,6 +341,56 @@ fn animate_explosion(
             if sprite.index == texture_atlas.textures.len() as u32 {
                 commands.entity(entity).despawn();
             }
+        }
+    }
+}
+
+//take this with a grain of salt
+fn pause_game(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut pause_query: Query<(&mut Visible, With<PauseText>)>,
+    mut pause_state_query: QuerySet<(
+    Query<&mut PauseState, With<Player>>,
+    Query<&mut PauseState,(With<Laser>, With<FromPlayer>)>,
+    Query<&mut PauseState, With<Enemy>>,
+    Query<&mut PauseState, (With<Laser>, With<FromEnemy>)>,
+    )>,
+    mut game_state: ResMut<GameState>,
+){
+    for(mut visibility, _) in pause_query.iter_mut() {
+        if keyboard_input.just_pressed(KeyCode::Escape) {
+            visibility.is_visible = !visibility.is_visible;
+            if(visibility.is_visible){
+                if let Ok((mut pause)) = pause_state_query.q0_mut().single_mut() {
+                    pause.0 = true;
+                }
+                for mut pause in pause_state_query.q1_mut().iter_mut(){
+                    pause.0 = true;
+                }
+                for mut pause in pause_state_query.q2_mut().iter_mut(){
+                    pause.0 = true;
+                }
+                for mut pause in pause_state_query.q3_mut().iter_mut(){
+                    pause.0 = true;
+                }
+                game_state.0 = "pause".to_string();
+            }
+            else{
+                if let Ok((mut pause)) = pause_state_query.q0_mut().single_mut() {
+                    pause.0 = false;
+                }
+                for mut pause in pause_state_query.q1_mut().iter_mut(){
+                    pause.0 = false;
+                }
+                for mut pause in pause_state_query.q2_mut().iter_mut(){
+                    pause.0 = false;
+                }
+                for mut pause in pause_state_query.q3_mut().iter_mut(){
+                    pause.0 = false;
+                }
+                game_state.0 = "active".to_string();
+            }
+
         }
     }
 }
