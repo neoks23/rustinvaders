@@ -111,11 +111,24 @@ impl Default for LaserSpeed{
 #[derive(Inspectable, Default)]
 struct PauseText;
 
+struct CheatSheetTimer{
+    timer: Timer,
+}
+
+impl Default for CheatSheetTimer{
+    fn default() -> Self {
+        CheatSheetTimer{
+            timer: Timer::from_seconds(5.0, false),
+        }
+    }
+}
+
 fn main() {
     let mut app = App::build();
 
 
-        app.insert_resource(ClearColor(Color::rgb(0.04,0.04,0.04)))
+        app
+        .insert_resource(ClearColor(Color::rgb(0.04,0.04,0.04)))
         .insert_resource(GameState("active".to_string()))
         .insert_resource(WindowDescriptor{
             title: "Rust Invaders".to_string(),
@@ -124,6 +137,7 @@ fn main() {
             ..Default::default()
         })
         .insert_resource(ActiveEnemies(0))
+        .insert_resource(CheatSheetTimer::default())
         .add_plugins(DefaultPlugins)
         .add_plugin(PlayerPlugin)
         .add_plugin(EnemyPlugin)
@@ -132,6 +146,7 @@ fn main() {
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
         .add_startup_system(inspector_window_setup.system())
+        .add_system(inspector_window.system())
         .add_system(player_laser_hit_enemy.system())
         .add_system(enemy_laser_hit_player.system())
         .add_system(explosion_to_spawn.system())
@@ -217,9 +232,36 @@ fn setup(mut commands: Commands,
 fn inspector_window_setup(
     mut inspector_windows: ResMut<InspectorWindows>
 ){
-
+    let mut inspector_window_pause_data = inspector_windows.window_data_mut::<InspectorQuerySingle<Entity, With<PauseText>>>();
+    inspector_window_pause_data.name = "Pause".to_string();
+    inspector_window_pause_data.visible = false;
+    let mut inspector_window_player_data = inspector_windows.window_data_mut::<InspectorQuerySingle<Entity, With<Player>>>();
+    inspector_window_player_data.name = "Player".to_string();
+    inspector_window_player_data.visible = false;
+    let mut inspector_window_enemy_data = inspector_windows.window_data_mut::<InspectorQuery<(Entity), With<Enemy>>>();
+    inspector_window_enemy_data.name = "Enemies".to_string();
+    inspector_window_enemy_data.visible = false;
 }
+fn inspector_window(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut cheat_sheet_timer: ResMut<CheatSheetTimer>,
+    time: Res<Time>,
+    mut inspector_windows: ResMut<InspectorWindows>
+){
 
+    if keyboard_input.pressed(KeyCode::I) && keyboard_input.pressed(KeyCode::R){
+        cheat_sheet_timer.timer.tick(time.delta());
+        if cheat_sheet_timer.timer.finished(){
+            cheat_sheet_timer.timer.reset();
+            let mut inspector_window_pause_data = inspector_windows.window_data_mut::<InspectorQuerySingle<Entity, With<PauseText>>>();
+            inspector_window_pause_data.visible = !inspector_window_pause_data.visible;
+            let mut inspector_window_player_data = inspector_windows.window_data_mut::<InspectorQuerySingle<Entity, With<Player>>>();
+            inspector_window_player_data.visible = !inspector_window_player_data.visible;
+            let mut inspector_window_enemy_data = inspector_windows.window_data_mut::<InspectorQuery<(Entity), With<Enemy>>>();
+            inspector_window_enemy_data.visible = !inspector_window_enemy_data.visible;
+        }
+    }
+}
 
 fn player_laser_hit_enemy(
     mut commands: Commands,
