@@ -7,7 +7,7 @@ use crate::{enemy::EnemyPlugin, player::PlayerPlugin};
 use bevy::sprite::collide_aabb::collide;
 use std::collections::HashSet;
 use bevy_inspector_egui::{Inspectable, InspectorPlugin, WorldInspectorPlugin, InspectableRegistry};
-use bevy_inspector_egui::widgets::{InspectorQuerySingle, InspectorQuery};
+use bevy_inspector_egui::widgets::{InspectorQuerySingle, InspectorQuery, ResourceInspector};
 use bevy_inspector_egui::plugin::InspectorWindows;
 
 const PLAYER_SPRITE: &str = "player_c_01.png";
@@ -17,7 +17,7 @@ const ENEMY_LASER_SPRITE: &str = "laser_b_01.png";
 const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
 const TIME_STEP: f32 = 1. / 60.;
 const SCALE: f32 = 0.5;
-const MAX_ENEMIES: u32 = 4;
+const MAX_ENEMIES: u32 = 20;
 const MAX_FORMATION_MEMBERS: u32 = 2;
 const PLAYER_RESPAWN_DELAY: f64 = 2.;
 
@@ -38,6 +38,7 @@ struct ActiveEnemies(u32);
 struct PlayerState{
     on: bool,
     last_shot: f64,
+    invurnerable_timer: Timer,
 }
 
 impl Default for PlayerState{
@@ -45,6 +46,7 @@ impl Default for PlayerState{
         Self{
             on: false,
             last_shot: 0.,
+            invurnerable_timer: Timer::from_seconds(0.0, false),
         }
     }
 }
@@ -52,11 +54,13 @@ impl PlayerState{
     fn shot(&mut self, time: f64){
         self.on = false;
         self.last_shot = time;
+        self.invurnerable_timer = Timer::from_seconds(0.0, false);
     }
 
     fn spawned(&mut self){
         self.on = true;
         self.last_shot = 0.;
+        self.invurnerable_timer = Timer::from_seconds(1.5, false);
     }
 }
 
@@ -114,7 +118,6 @@ struct PauseText;
 struct CheatSheetTimer{
     timer: Timer,
 }
-
 impl Default for CheatSheetTimer{
     fn default() -> Self {
         CheatSheetTimer{
@@ -178,39 +181,50 @@ fn setup(mut commands: Commands,
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
     commands.spawn_bundle(UiCameraBundle::default());
     commands
-        .spawn_bundle(TextBundle {
+        .spawn_bundle(NodeBundle {
             visible: Visible{
-                is_visible: false,
+                is_visible: true,
                 is_transparent: false,
             },
             style: Style {
-                align_self: AlignSelf::Center,
-
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
                 position_type: PositionType::Absolute,
-                position: Rect{
-                    left: Val::Px((window.width() / 2.) - 110.),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::FlexEnd,
+                ..Default::default()
+            },
+            material: materials.add(Color::NONE.into()),
+            ..Default::default()
+        })
+        .with_children(|parent| {
+            parent.spawn_bundle(TextBundle {
+                visible: Visible{
+                    is_visible: false,
+                    is_transparent: false,
+                },
+                text: Text::with_section(
+                    // Accepts a `String` or any type that converts into a `String`, such as `&str`
+                    "pause",
+                    TextStyle {
+                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                        font_size: 100.0,
+                        color: Color::WHITE,
+                    },
+                    // Note: You can use `Default::default()` in place of the `TextAlignment`
+                    TextAlignment {
+                        horizontal: HorizontalAlign::Center,
+                        ..Default::default()
+                    },
+                ),
+                style: Style {
+                    align_self: AlignSelf::Center,
                     ..Default::default()
                 },
                 ..Default::default()
-            },
-            // Use the `Text::with_section` constructor
-            text: Text::with_section(
-                // Accepts a `String` or any type that converts into a `String`, such as `&str`
-                "pause",
-                TextStyle {
-                    font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                    font_size: 100.0,
-                    color: Color::WHITE,
-                },
-                // Note: You can use `Default::default()` in place of the `TextAlignment`
-                TextAlignment {
-                    horizontal: HorizontalAlign::Center,
-                    ..Default::default()
-                },
-            ),
-            ..Default::default()
-        })
-        .insert(PauseText);
+            })
+            .insert(PauseText);
+        });
+
 
     //create main resources
     let texture_handle = asset_server.load(EXPLOSION_SHEET);
@@ -306,32 +320,42 @@ fn player_laser_hit_enemy(
 fn enemy_laser_hit_player(
     mut commands: Commands,
     mut player_state: ResMut<PlayerState>,
+    mut pause_query: Query<(&mut Visible, (With<PauseText>))>,
     time: Res<Time>,
     laser_query: Query<(Entity, &Transform, &Sprite), (With<Laser>, With<FromEnemy>)>,
     player_query: Query<(Entity, &Transform, &Sprite), With<Player>>,
 ){
-    if let Ok((player_entity, player_tf, player_sprite)) = player_query.single(){
-        let player_size = player_sprite.size * Vec2::from(player_tf.scale.abs());
 
-        for (laser_entity, laser_tf, laser_sprite) in laser_query.iter(){
-            let laser_size = laser_sprite.size * Vec2::from(laser_tf.scale.abs());
 
-            let collision = collide(
-                laser_tf.translation,
-                laser_size,
-                player_tf.translation,
-                player_size,
-            );
+    for(mut visibility, _) in pause_query.iter_mut() {
+        if player_state.on && !visibility.is_visible {
+            player_state.invurnerable_timer.tick(time.delta());
+            if player_state.invurnerable_timer.finished() {
+                if let Ok((player_entity, player_tf, player_sprite)) = player_query.single() {
+                    let player_size = player_sprite.size * Vec2::from(player_tf.scale.abs());
 
-            if let Some(_) = collision{
-                commands.entity(player_entity).despawn();
-                player_state.shot(time.seconds_since_startup());
+                    for (laser_entity, laser_tf, laser_sprite) in laser_query.iter() {
+                        let laser_size = laser_sprite.size * Vec2::from(laser_tf.scale.abs());
 
-                commands.entity(laser_entity).despawn();
+                        let collision = collide(
+                            laser_tf.translation,
+                            laser_size,
+                            player_tf.translation,
+                            player_size,
+                        );
 
-                commands
-                    .spawn()
-                    .insert(ExplosionToSpawn(player_tf.translation.clone()));
+                        if let Some(_) = collision {
+                            commands.entity(player_entity).despawn();
+                            player_state.shot(time.seconds_since_startup());
+
+                            commands.entity(laser_entity).despawn();
+
+                            commands
+                                .spawn()
+                                .insert(ExplosionToSpawn(player_tf.translation.clone()));
+                        }
+                    }
+                }
             }
         }
     }
@@ -390,7 +414,7 @@ fn animate_explosion(
 //take this with a grain of salt
 fn pause_game(
     keyboard_input: Res<Input<KeyCode>>,
-    mut pause_query: Query<(&mut Visible, With<PauseText>)>,
+    mut pause_query: Query<(&mut Visible, (With<PauseText>))>,
     mut pause_state_query: QuerySet<(
     Query<&mut PauseState, With<Player>>,
     Query<&mut PauseState,(With<Laser>, With<FromPlayer>)>,
