@@ -39,6 +39,7 @@ struct PlayerState{
     on: bool,
     last_shot: f64,
     invurnerable_timer: Timer,
+    lifes: i32,
 }
 
 impl Default for PlayerState{
@@ -47,14 +48,22 @@ impl Default for PlayerState{
             on: false,
             last_shot: 0.,
             invurnerable_timer: Timer::from_seconds(0.0, false),
+            lifes: 3,
         }
     }
 }
 impl PlayerState{
-    fn shot(&mut self, time: f64){
+    fn shot_or_dead(&mut self, time: f64) -> bool{
         self.on = false;
         self.last_shot = time;
         self.invurnerable_timer = Timer::from_seconds(0.0, false);
+        if self.lifes > 0{
+            self.lifes -= 1;
+        }
+        else{
+            return true
+        }
+        return false
     }
 
     fn spawned(&mut self){
@@ -63,6 +72,10 @@ impl PlayerState{
         self.invurnerable_timer = Timer::from_seconds(1.5, false);
     }
 }
+
+struct GameOverToSpawn;
+#[derive(Inspectable)]
+struct GameOverText;
 
 struct Laser;
 
@@ -114,7 +127,6 @@ impl Default for LaserSpeed{
 
 #[derive(Inspectable, Default)]
 struct PauseText;
-
 struct CheatSheetTimer{
     timer: Timer,
 }
@@ -146,6 +158,7 @@ fn main() {
         .add_plugin(EnemyPlugin)
         .add_plugin(InspectorPlugin::<InspectorQuery<(Entity), With<Enemy>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<PauseText>>>::new())
+        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<GameOverText>)>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
         .add_startup_system(inspector_window_setup.system())
@@ -154,7 +167,8 @@ fn main() {
         .add_system(enemy_laser_hit_player.system())
         .add_system(explosion_to_spawn.system())
         .add_system(animate_explosion.system())
-        .add_system(pause_game.system());
+        .add_system(pause_game.system())
+        .add_system(gameover_to_spawn.system());
 
         let mut registry = app
             .world_mut()
@@ -164,7 +178,7 @@ fn main() {
         registry.register::<Speed>();
         registry.register::<PauseState>();
         registry.register::<LaserSpeed>();
-
+        registry.register::<GameOverText>();
 
 
         app.run();
@@ -317,6 +331,7 @@ fn player_laser_hit_enemy(
         }
     }
 }
+
 fn enemy_laser_hit_player(
     mut commands: Commands,
     mut player_state: ResMut<PlayerState>,
@@ -346,7 +361,11 @@ fn enemy_laser_hit_player(
 
                         if let Some(_) = collision {
                             commands.entity(player_entity).despawn();
-                            player_state.shot(time.seconds_since_startup());
+                            if player_state.shot_or_dead(time.seconds_since_startup()) {
+                                commands
+                                    .spawn()
+                                    .insert(GameOverToSpawn);
+                            }
 
                             commands.entity(laser_entity).despawn();
 
@@ -411,6 +430,62 @@ fn animate_explosion(
     }
 }
 
+fn gameover_to_spawn(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    query: Query<(Entity, &GameOverToSpawn)>,
+    asset_server: Res<AssetServer>,
+    mut game_state: ResMut<GameState>,
+){
+
+    for (gameover_spawn_entity, gameover_to_spawn) in query.iter() {
+        commands
+            .spawn_bundle(NodeBundle {
+                visible: Visible {
+                    is_visible: true,
+                    is_transparent: false,
+                },
+                style: Style {
+                    size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                    position_type: PositionType::Absolute,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::FlexEnd,
+                    ..Default::default()
+                },
+                material: materials.add(Color::NONE.into()),
+                ..Default::default()
+            })
+            .with_children(|parent| {
+                parent.spawn_bundle(TextBundle {
+                    visible: Visible {
+                        is_visible: true,
+                        is_transparent: false,
+                    },
+                    text: Text::with_section(
+                        // Accepts a `String` or any type that converts into a `String`, such as `&str`
+                        "Game Over",
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 100.0,
+                            color: Color::WHITE,
+                        },
+                        // Note: You can use `Default::default()` in place of the `TextAlignment`
+                        TextAlignment {
+                            horizontal: HorizontalAlign::Center,
+                            ..Default::default()
+                        },
+                    ),
+                    style: Style {
+                        align_self: AlignSelf::Center,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                    .insert(GameOverText);
+            });
+        commands.entity(gameover_spawn_entity).despawn();
+    }
+}
 //take this with a grain of salt
 fn pause_game(
     keyboard_input: Res<Input<KeyCode>>,
