@@ -94,7 +94,8 @@ fn enemy_spawn(
     win_size: Res<WinSize>,
     materials: Res<Materials>
 ) {
-    if active_enemies.0 < MAX_ENEMIES {
+
+    if active_enemies.0 < MAX_ENEMIES && game_state.0 != "gameover".to_string(){
 
         let formation = formation_maker.make(&win_size);
         let (x, y) = formation.start;

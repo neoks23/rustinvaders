@@ -17,7 +17,7 @@ const ENEMY_LASER_SPRITE: &str = "laser_b_01.png";
 const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
 const TIME_STEP: f32 = 1. / 60.;
 const SCALE: f32 = 0.5;
-const MAX_ENEMIES: u32 = 20;
+const MAX_ENEMIES: u32 = 4;
 const MAX_FORMATION_MEMBERS: u32 = 2;
 const PLAYER_RESPAWN_DELAY: f64 = 2.;
 
@@ -39,7 +39,7 @@ struct PlayerState{
     on: bool,
     last_shot: f64,
     invurnerable_timer: Timer,
-    lifes: i32,
+    lifes: u32,
 }
 
 impl Default for PlayerState{
@@ -60,10 +60,11 @@ impl PlayerState{
         if self.lifes > 0{
             self.lifes -= 1;
         }
-        else{
+
+        if self.lifes == 0{
             return true
         }
-        return false
+        false
     }
 
     fn spawned(&mut self){
@@ -158,7 +159,7 @@ fn main() {
         .add_plugin(EnemyPlugin)
         .add_plugin(InspectorPlugin::<InspectorQuery<(Entity), With<Enemy>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<PauseText>>>::new())
-        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<GameOverText>)>>::new())
+        .add_plugin(InspectorPlugin::<InspectorQuery<Entity, (With<GameOverText>)>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
         .add_startup_system(inspector_window_setup.system())
@@ -269,6 +270,9 @@ fn inspector_window_setup(
     let mut inspector_window_enemy_data = inspector_windows.window_data_mut::<InspectorQuery<(Entity), With<Enemy>>>();
     inspector_window_enemy_data.name = "Enemies".to_string();
     inspector_window_enemy_data.visible = false;
+    let mut inspector_window_gameover_data = inspector_windows.window_data_mut::<InspectorQuery<(Entity), With<GameOverText>>>();
+    inspector_window_gameover_data.name = "Game Over".to_string();
+    inspector_window_gameover_data.visible = false;
 }
 fn inspector_window(
     keyboard_input: Res<Input<KeyCode>>,
@@ -287,17 +291,27 @@ fn inspector_window(
             inspector_window_player_data.visible = !inspector_window_player_data.visible;
             let mut inspector_window_enemy_data = inspector_windows.window_data_mut::<InspectorQuery<(Entity), With<Enemy>>>();
             inspector_window_enemy_data.visible = !inspector_window_enemy_data.visible;
+            let mut inspector_window_gameover_data = inspector_windows.window_data_mut::<InspectorQuery<(Entity), With<GameOverText>>>();
+            inspector_window_gameover_data.visible = !inspector_window_gameover_data.visible;
         }
     }
 }
 
 fn player_laser_hit_enemy(
     mut commands: Commands,
+    game_state: Res<GameState>,
     mut laser_query: Query<(Entity, &Transform, &Sprite,(With<Laser>, With<FromPlayer>))>,
     mut enemy_query: Query<(Entity, &Transform, &Sprite, With<Enemy>)>,
     mut active_enemies: ResMut<ActiveEnemies>,
 ){
     let mut enemies_blasted: HashSet<Entity> = HashSet::new();
+    for (enemy_entity, enemy_tf, enemy_sprite, _) in enemy_query.iter_mut(){
+        if game_state.0 == "gameover"{
+            commands.entity(enemy_entity).despawn();
+            active_enemies.0 = 0;
+        }
+    }
+
     for(laser_entity, laser_tf, laser_sprite, _) in laser_query.iter_mut(){
         for(enemy_entity, enemy_tf, enemy_sprite, _) in enemy_query.iter_mut(){
             let laser_scale = Vec2::from(laser_tf.scale);
@@ -335,6 +349,7 @@ fn player_laser_hit_enemy(
 fn enemy_laser_hit_player(
     mut commands: Commands,
     mut player_state: ResMut<PlayerState>,
+    mut game_state: ResMut<GameState>,
     mut pause_query: Query<(&mut Visible, (With<PauseText>))>,
     time: Res<Time>,
     laser_query: Query<(Entity, &Transform, &Sprite), (With<Laser>, With<FromEnemy>)>,
@@ -365,6 +380,8 @@ fn enemy_laser_hit_player(
                                 commands
                                     .spawn()
                                     .insert(GameOverToSpawn);
+
+                                    game_state.0 = "gameover".to_string();
                             }
 
                             commands.entity(laser_entity).despawn();
@@ -499,39 +516,41 @@ fn pause_game(
     mut game_state: ResMut<GameState>,
 ){
     for(mut visibility, _) in pause_query.iter_mut() {
-        if keyboard_input.just_pressed(KeyCode::Escape) {
-            visibility.is_visible = !visibility.is_visible;
-            if(visibility.is_visible){
-                if let Ok((mut pause)) = pause_state_query.q0_mut().single_mut() {
-                    pause.0 = true;
+        if game_state.0 != "gameover"{
+            if keyboard_input.just_pressed(KeyCode::Escape) {
+                visibility.is_visible = !visibility.is_visible;
+                if(visibility.is_visible){
+                    if let Ok((mut pause)) = pause_state_query.q0_mut().single_mut() {
+                        pause.0 = true;
+                    }
+                    for mut pause in pause_state_query.q1_mut().iter_mut(){
+                        pause.0 = true;
+                    }
+                    for mut pause in pause_state_query.q2_mut().iter_mut(){
+                        pause.0 = true;
+                    }
+                    for mut pause in pause_state_query.q3_mut().iter_mut(){
+                        pause.0 = true;
+                    }
+                    game_state.0 = "pause".to_string();
                 }
-                for mut pause in pause_state_query.q1_mut().iter_mut(){
-                    pause.0 = true;
+                else{
+                    if let Ok((mut pause)) = pause_state_query.q0_mut().single_mut() {
+                        pause.0 = false;
+                    }
+                    for mut pause in pause_state_query.q1_mut().iter_mut(){
+                        pause.0 = false;
+                    }
+                    for mut pause in pause_state_query.q2_mut().iter_mut(){
+                        pause.0 = false;
+                    }
+                    for mut pause in pause_state_query.q3_mut().iter_mut(){
+                        pause.0 = false;
+                    }
+                    game_state.0 = "active".to_string();
                 }
-                for mut pause in pause_state_query.q2_mut().iter_mut(){
-                    pause.0 = true;
-                }
-                for mut pause in pause_state_query.q3_mut().iter_mut(){
-                    pause.0 = true;
-                }
-                game_state.0 = "pause".to_string();
-            }
-            else{
-                if let Ok((mut pause)) = pause_state_query.q0_mut().single_mut() {
-                    pause.0 = false;
-                }
-                for mut pause in pause_state_query.q1_mut().iter_mut(){
-                    pause.0 = false;
-                }
-                for mut pause in pause_state_query.q2_mut().iter_mut(){
-                    pause.0 = false;
-                }
-                for mut pause in pause_state_query.q3_mut().iter_mut(){
-                    pause.0 = false;
-                }
-                game_state.0 = "active".to_string();
-            }
 
+            }
         }
     }
 }
