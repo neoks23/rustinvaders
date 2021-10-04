@@ -27,6 +27,9 @@ pub struct Materials{
     enemy: Handle<ColorMaterial>,
     enemy_laser: Handle<ColorMaterial>,
     explosion: Handle<TextureAtlas>,
+    normal: Handle<ColorMaterial>,
+    hovered: Handle<ColorMaterial>,
+    pressed: Handle<ColorMaterial>,
 }
 struct WinSize{
     #[allow(unused)]
@@ -48,7 +51,7 @@ impl Default for PlayerState{
             on: false,
             last_shot: 0.,
             invurnerable_timer: Timer::from_seconds(0.0, false),
-            lifes: 3,
+            lifes: 2,
         }
     }
 }
@@ -57,11 +60,10 @@ impl PlayerState{
         self.on = false;
         self.last_shot = time;
         self.invurnerable_timer = Timer::from_seconds(0.0, false);
-        if self.lifes > 0{
+        if self.lifes != 0{
             self.lifes -= 1;
         }
-
-        if self.lifes == 0{
+        else{
             return true
         }
         false
@@ -139,6 +141,8 @@ impl Default for CheatSheetTimer{
     }
 }
 
+struct UISpawner;
+
 fn main() {
     let mut app = App::build();
 
@@ -163,6 +167,7 @@ fn main() {
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
         .add_startup_system(inspector_window_setup.system())
+        .add_system(ui_setup.system())
         .add_system(inspector_window.system())
         .add_system(player_laser_hit_enemy.system())
         .add_system(enemy_laser_hit_player.system())
@@ -193,6 +198,11 @@ fn setup(mut commands: Commands,
 ){
     let mut window = windows.get_primary_mut().unwrap();
     //camera
+
+    //create main resources
+
+    commands.insert_resource(WinSize{w: window.height(), h: window.width()});
+
     commands.spawn_bundle(OrthographicCameraBundle::new_2d());
     commands.spawn_bundle(UiCameraBundle::default());
     commands
@@ -239,9 +249,8 @@ fn setup(mut commands: Commands,
             })
             .insert(PauseText);
         });
+    //window
 
-
-    //create main resources
     let texture_handle = asset_server.load(EXPLOSION_SHEET);
     let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(64.0,64.0), 4, 4);
 
@@ -251,13 +260,69 @@ fn setup(mut commands: Commands,
         enemy: materials.add(asset_server.load(ENEMY_SPRITE).into()),
         enemy_laser: materials.add(asset_server.load(ENEMY_LASER_SPRITE).into()),
         explosion: texture_atlases.add(texture_atlas),
+        normal: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
+        hovered: materials.add(Color::rgb(0.25, 0.25, 0.25).into()),
+        pressed: materials.add(Color::rgb(0.35, 0.75, 0.35).into()),
     });
-    commands.insert_resource(WinSize{w: window.height(), h: window.width()});
-
-    //window
 
     //spawn a sprite
+    commands
+        .spawn()
+        .insert(UISpawner);
 }
+
+fn ui_setup(mut commands: Commands,
+            asset_server: Res<AssetServer>,
+            materials: Res<Materials>,
+            query: Query<(Entity, &UISpawner)>){
+
+    for (ui_spawn_entity, ui_to_spawn) in query.iter() {
+        commands
+            .spawn_bundle(ButtonBundle {
+                style: Style {
+                    size: Size::new(Val::Px(150.0), Val::Px(65.0)),
+                    // center button
+                    margin: Rect::all(Val::Auto),
+                    // horizontally center child text
+                    justify_content: JustifyContent::Center,
+                    // vertically center child text
+                    align_items: AlignItems::Center,
+                    ..Default::default()
+                },
+                material: materials.normal.clone(),
+                ..Default::default()
+            })
+            .with_children(|parent| {
+                parent.spawn_bundle(ImageBundle {
+                    style: Style {
+                        size: Size::new(Val::Px(150.0), Val::Px(65.0)),
+                        position_type: PositionType::Absolute,
+                        ..Default::default()
+                    },
+                    material: materials.pressed.clone(),
+                    ..Default::default()
+                });
+            })
+            .with_children(|parent| {
+                parent.spawn_bundle(TextBundle {
+                    text: Text::with_section(
+                        "Button",
+                        TextStyle {
+                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                            font_size: 40.0,
+                            color: Color::rgb(0.9, 0.9, 0.9),
+                        },
+                        Default::default(),
+                    ),
+                    ..Default::default()
+                });
+            });
+        commands
+            .entity(ui_spawn_entity)
+            .despawn();
+    }
+}
+
 fn inspector_window_setup(
     mut inspector_windows: ResMut<InspectorWindows>
 ){
