@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use bevy_inspector_egui::{Inspectable, InspectorPlugin, WorldInspectorPlugin, InspectableRegistry};
 use bevy_inspector_egui::widgets::{InspectorQuerySingle, InspectorQuery, ResourceInspector};
 use bevy_inspector_egui::plugin::InspectorWindows;
+use bevy::ui::widget::Image;
 
 const PLAYER_SPRITE: &str = "player_c_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -26,10 +27,37 @@ pub struct Materials{
     player_laser: Handle<ColorMaterial>,
     enemy: Handle<ColorMaterial>,
     enemy_laser: Handle<ColorMaterial>,
-    explosion: Handle<TextureAtlas>,
     normal: Handle<ColorMaterial>,
     hovered: Handle<ColorMaterial>,
     pressed: Handle<ColorMaterial>,
+    explosion: Option<Handle<TextureAtlas>>,
+}
+
+impl FromWorld for Materials{
+    fn from_world(world: &mut World) -> Self {
+        let asset_server = world.get_resource::<AssetServer>().unwrap();
+        let asset_server = asset_server.clone();
+        let mut materials = world.get_resource_mut::<Assets<ColorMaterial>>().unwrap();
+
+        let texture_handle = asset_server.load(EXPLOSION_SHEET);
+        let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(64.0,64.0), 4, 4);
+        let mut material = Materials{
+            player: materials.add(asset_server.load(PLAYER_SPRITE).into()),
+            player_laser: materials.add(asset_server.load(PLAYER_LASER_SPRITE).into()),
+            enemy: materials.add(asset_server.load(ENEMY_SPRITE).into()),
+            enemy_laser: materials.add(asset_server.load(ENEMY_LASER_SPRITE).into()),
+            normal: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
+            hovered: materials.add(Color::rgb(0.25, 0.25, 0.25).into()),
+            pressed: materials.add(Color::rgb(0.35, 0.75, 0.35).into()),
+            explosion: None,
+        };
+
+        let mut texture_atlases = world.get_resource_mut::<Assets<TextureAtlas>>().unwrap();
+        material.explosion = Some(texture_atlases.add(texture_atlas));
+
+        material
+
+    }
 }
 struct WinSize{
     #[allow(unused)]
@@ -79,6 +107,10 @@ impl PlayerState{
 struct GameOverToSpawn;
 #[derive(Inspectable)]
 struct GameOverText;
+
+#[derive(Inspectable)]
+struct ButtonText;
+struct ButtonLabel;
 
 struct Laser;
 
@@ -159,10 +191,12 @@ fn main() {
         .insert_resource(ActiveEnemies(0))
         .insert_resource(CheatSheetTimer::default())
         .add_plugins(DefaultPlugins)
+        .init_resource::<Materials>()
         .add_plugin(PlayerPlugin)
         .add_plugin(EnemyPlugin)
         .add_plugin(InspectorPlugin::<InspectorQuery<(Entity), With<Enemy>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<PauseText>>>::new())
+        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<ButtonText>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuery<Entity, (With<GameOverText>)>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
@@ -174,6 +208,7 @@ fn main() {
         .add_system(explosion_to_spawn.system())
         .add_system(animate_explosion.system())
         .add_system(pause_game.system())
+        .add_system(button_system.system())
         .add_system(gameover_to_spawn.system());
 
         let mut registry = app
@@ -185,6 +220,7 @@ fn main() {
         registry.register::<PauseState>();
         registry.register::<LaserSpeed>();
         registry.register::<GameOverText>();
+        registry.register::<ButtonText>();
 
 
         app.run();
@@ -249,22 +285,6 @@ fn setup(mut commands: Commands,
             })
             .insert(PauseText);
         });
-    //window
-
-    let texture_handle = asset_server.load(EXPLOSION_SHEET);
-    let texture_atlas = TextureAtlas::from_grid(texture_handle, Vec2::new(64.0,64.0), 4, 4);
-
-    commands.insert_resource(Materials{
-        player: materials.add(asset_server.load(PLAYER_SPRITE).into()),
-        player_laser: materials.add(asset_server.load(PLAYER_LASER_SPRITE).into()),
-        enemy: materials.add(asset_server.load(ENEMY_SPRITE).into()),
-        enemy_laser: materials.add(asset_server.load(ENEMY_LASER_SPRITE).into()),
-        explosion: texture_atlases.add(texture_atlas),
-        normal: materials.add(Color::rgb(0.15, 0.15, 0.15).into()),
-        hovered: materials.add(Color::rgb(0.25, 0.25, 0.25).into()),
-        pressed: materials.add(Color::rgb(0.35, 0.75, 0.35).into()),
-    });
-
     //spawn a sprite
     commands
         .spawn()
@@ -289,9 +309,10 @@ fn ui_setup(mut commands: Commands,
                     align_items: AlignItems::Center,
                     ..Default::default()
                 },
-                material: materials.normal.clone(),
+                material: materials.pressed.clone(),
                 ..Default::default()
             })
+            .insert(ButtonText)
             .with_children(|parent| {
                 parent.spawn_bundle(ImageBundle {
                     style: Style {
@@ -301,7 +322,8 @@ fn ui_setup(mut commands: Commands,
                     },
                     material: materials.pressed.clone(),
                     ..Default::default()
-                });
+                })
+                .insert(ButtonLabel);
             })
             .with_children(|parent| {
                 parent.spawn_bundle(TextBundle {
@@ -358,6 +380,38 @@ fn inspector_window(
             inspector_window_enemy_data.visible = !inspector_window_enemy_data.visible;
             let mut inspector_window_gameover_data = inspector_windows.window_data_mut::<InspectorQuery<(Entity), With<GameOverText>>>();
             inspector_window_gameover_data.visible = !inspector_window_gameover_data.visible;
+        }
+    }
+}
+
+fn button_system(
+    materials: Res<Materials>,
+
+    mut interaction_query: Query<
+        (&Interaction, &Children),
+        (Changed<Interaction>, With<ButtonText>),
+    >,
+    mut text_query: Query<&mut Text>,
+    mut image_query: Query<(&mut Handle<ColorMaterial>), (With<ButtonLabel>)>,
+){
+    for (interaction, children) in interaction_query.iter_mut() {
+        for (mut material) in image_query.iter_mut(){
+            //let mut image = image_query.get_mut(children[0]).unwrap();
+            let mut text = text_query.get_mut(children[1]).unwrap();
+            match *interaction{
+                Interaction::Clicked => {
+                    text.sections[0].value = "Press".to_string();
+                    *material = materials.pressed.clone();
+                }
+                Interaction::Hovered => {
+                    text.sections[0].value = "Hover".to_string();
+                    *material = materials.hovered.clone();
+                }
+                Interaction::None => {
+                    text.sections[0].value = "Bloop".to_string();
+                    *material = materials.normal.clone();
+                }
+            }
         }
     }
 }
@@ -469,7 +523,7 @@ fn explosion_to_spawn(
     for (explosion_spawn_entity, explosion_to_spawn) in query.iter(){
         commands
             .spawn_bundle(SpriteSheetBundle{
-                texture_atlas: materials.explosion.clone(),
+                texture_atlas: materials.explosion.clone().unwrap(),
                 transform: Transform{
                     translation: explosion_to_spawn.0,
                     ..Default::default()
