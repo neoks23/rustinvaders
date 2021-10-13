@@ -10,6 +10,7 @@ use bevy_inspector_egui::{Inspectable, InspectorPlugin, WorldInspectorPlugin, In
 use bevy_inspector_egui::widgets::{InspectorQuerySingle, InspectorQuery, ResourceInspector};
 use bevy_inspector_egui::plugin::InspectorWindows;
 use bevy::ui::widget::Image;
+use sqlx::mysql::{MySqlPoolOptions, MySqlPool};
 
 const PLAYER_SPRITE: &str = "player_c_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -80,7 +81,7 @@ impl Default for PlayerState{
             on: false,
             last_shot: 0.,
             invurnerable_timer: Timer::from_seconds(0.0, false),
-            lifes: 2,
+            lifes: 3,
             score: 0,
         }
     }
@@ -396,8 +397,7 @@ fn button_system(
                         text.sections[0].value = "Name:\nScore: ".to_owned() + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
                         *material = materials.pressed.clone();
                         text.sections[0].style.color = Color::rgb(0.1,0.9,0.1);
-                        println!("pressed");
-
+                        bloop(player_state.score);
                     }
                     Interaction::Hovered => {
                         text.sections[0].value = "Name:\nScore: ".to_owned()  + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
@@ -413,6 +413,17 @@ fn button_system(
             }
         }
     }
+}
+
+async fn bloop(score: u32)-> Result<(), sqlx::Error>{
+    println!("bloop");
+
+    let pool = MySqlPoolOptions::new().max_connections(5).connect("mysql://localhost/gildaga").await?;
+    //let pool = MySqlPool::connect("mysql://localhost/gildaga").await?;
+
+    sqlx::query("INSERT INTO score (Username, Score) VALUES ( ?, ? )").bind("bloop").bind(score).execute(&pool).await?;
+
+    Ok(())
 }
 
 fn player_laser_hit_enemy(

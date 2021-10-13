@@ -9,3 +9,6 @@ edition = "2018"
 bevy = "0.5"
 bevy-inspector-egui = "0.6.1"
 rand = "0.8"
+
+sqlx = { version = "0.4.1", features = [ "mysql", "runtime-async-std-native-tls" ,  ] }
+async-std = { version = "1.6", features = [ "attributes" ] }
