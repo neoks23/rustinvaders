@@ -71,6 +71,7 @@ struct PlayerState{
     last_shot: f64,
     invurnerable_timer: Timer,
     lifes: u32,
+    score: u32,
 }
 
 impl Default for PlayerState{
@@ -80,6 +81,7 @@ impl Default for PlayerState{
             last_shot: 0.,
             invurnerable_timer: Timer::from_seconds(0.0, false),
             lifes: 2,
+            score: 0,
         }
     }
 }
@@ -109,8 +111,8 @@ struct GameOverToSpawn;
 struct GameOverText;
 
 #[derive(Inspectable)]
-struct ButtonText;
-struct ButtonLabel;
+struct ButtonSaveToDB;
+struct ButtonSaveToDBLabel;
 
 struct Laser;
 
@@ -173,8 +175,6 @@ impl Default for CheatSheetTimer{
     }
 }
 
-struct UISpawner;
-
 fn main() {
     let mut app = App::build();
 
@@ -196,12 +196,11 @@ fn main() {
         .add_plugin(EnemyPlugin)
         .add_plugin(InspectorPlugin::<InspectorQuery<(Entity), With<Enemy>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<PauseText>>>::new())
-        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<ButtonText>>>::new())
+        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<ButtonSaveToDB>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuery<Entity, (With<GameOverText>)>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
         .add_startup_system(inspector_window_setup.system())
-        .add_system(ui_setup.system())
         .add_system(inspector_window.system())
         .add_system(player_laser_hit_enemy.system())
         .add_system(enemy_laser_hit_player.system())
@@ -220,7 +219,7 @@ fn main() {
         registry.register::<PauseState>();
         registry.register::<LaserSpeed>();
         registry.register::<GameOverText>();
-        registry.register::<ButtonText>();
+        registry.register::<ButtonSaveToDB>();
 
 
         app.run();
@@ -228,8 +227,8 @@ fn main() {
 
 fn setup(mut commands: Commands,
          asset_server: Res<AssetServer>,
-         mut materials: ResMut<Assets<ColorMaterial>>,
-         mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+         mut cmaterials: ResMut<Assets<ColorMaterial>>,
+         materials: Res<Materials>,
          mut windows: ResMut<Windows>,
 ){
     let mut window = windows.get_primary_mut().unwrap();
@@ -254,7 +253,7 @@ fn setup(mut commands: Commands,
                 align_items: AlignItems::FlexEnd,
                 ..Default::default()
             },
-            material: materials.add(Color::NONE.into()),
+            material: cmaterials.add(Color::NONE.into()),
             ..Default::default()
         })
         .with_children(|parent| {
@@ -285,64 +284,51 @@ fn setup(mut commands: Commands,
             })
             .insert(PauseText);
         });
-    //spawn a sprite
+
     commands
-        .spawn()
-        .insert(UISpawner);
-}
-
-fn ui_setup(mut commands: Commands,
-            asset_server: Res<AssetServer>,
-            materials: Res<Materials>,
-            query: Query<(Entity, &UISpawner)>){
-
-    for (ui_spawn_entity, ui_to_spawn) in query.iter() {
-        commands
-            .spawn_bundle(ButtonBundle {
-                style: Style {
-                    size: Size::new(Val::Px(150.0), Val::Px(65.0)),
-                    // center button
-                    margin: Rect::all(Val::Auto),
-                    // horizontally center child text
-                    justify_content: JustifyContent::Center,
-                    // vertically center child text
-                    align_items: AlignItems::Center,
-                    ..Default::default()
+        .spawn_bundle(ButtonBundle {
+            visible: Visible{
+                is_visible: true,
+                is_transparent: false,
+            },
+            style: Style {
+                size: Size::new(Val::Px(150.0), Val::Px(65.0)),
+                // center button
+                margin: Rect{
+                    left: Val::Auto,
+                    right: Val::Auto,
+                    top: Val::Auto,
+                    bottom: Val::Px(200.0),
                 },
-                material: materials.pressed.clone(),
+                // horizontally center child text
+                justify_content: JustifyContent::Center,
+                // vertically center child text
+                align_items: AlignItems::Center,
+                ..Default::default()
+            },
+            material: materials.pressed.clone(),
+            ..Default::default()
+        })
+        .with_children(|parent| {
+            parent.spawn_bundle(TextBundle {
+                visible: Visible{
+                    is_visible: false,
+                    is_transparent: false,
+                },
+                text: Text::with_section(
+                    "Button",
+                    TextStyle {
+                        font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                        font_size: 40.0,
+                        color: Color::rgb(0.9, 0.9, 0.9),
+                    },
+                    Default::default(),
+                ),
                 ..Default::default()
             })
-            .insert(ButtonText)
-            .with_children(|parent| {
-                parent.spawn_bundle(ImageBundle {
-                    style: Style {
-                        size: Size::new(Val::Px(150.0), Val::Px(65.0)),
-                        position_type: PositionType::Absolute,
-                        ..Default::default()
-                    },
-                    material: materials.pressed.clone(),
-                    ..Default::default()
-                })
-                .insert(ButtonLabel);
-            })
-            .with_children(|parent| {
-                parent.spawn_bundle(TextBundle {
-                    text: Text::with_section(
-                        "Button",
-                        TextStyle {
-                            font: asset_server.load("fonts/FiraSans-Bold.ttf"),
-                            font_size: 40.0,
-                            color: Color::rgb(0.9, 0.9, 0.9),
-                        },
-                        Default::default(),
-                    ),
-                    ..Default::default()
-                });
-            });
-        commands
-            .entity(ui_spawn_entity)
-            .despawn();
-    }
+                .insert(ButtonSaveToDBLabel);
+        })
+        .insert(ButtonSaveToDB);
 }
 
 fn inspector_window_setup(
@@ -386,30 +372,38 @@ fn inspector_window(
 
 fn button_system(
     materials: Res<Materials>,
-
+    game_state: Res<GameState>,
     mut interaction_query: Query<
-        (&Interaction, &Children),
-        (Changed<Interaction>, With<ButtonText>),
+        (&Interaction, &mut Handle<ColorMaterial>, &Children),
+        (Changed<Interaction>, With<ButtonSaveToDB>),
     >,
     mut text_query: Query<&mut Text>,
-    mut image_query: Query<(&mut Handle<ColorMaterial>), (With<ButtonLabel>)>,
+    mut label_query: Query<&mut Visible, With<ButtonSaveToDBLabel>>,
 ){
-    for (interaction, children) in interaction_query.iter_mut() {
-        for (mut material) in image_query.iter_mut(){
-            //let mut image = image_query.get_mut(children[0]).unwrap();
-            let mut text = text_query.get_mut(children[1]).unwrap();
-            match *interaction{
-                Interaction::Clicked => {
-                    text.sections[0].value = "Press".to_string();
-                    *material = materials.pressed.clone();
-                }
-                Interaction::Hovered => {
-                    text.sections[0].value = "Hover".to_string();
-                    *material = materials.hovered.clone();
-                }
-                Interaction::None => {
-                    text.sections[0].value = "Bloop".to_string();
-                    *material = materials.normal.clone();
+    for (interaction, mut material, children) in interaction_query.iter_mut() {
+        for (mut visible) in label_query.iter_mut(){
+            let mut text = text_query.get_mut(children[0]).unwrap();
+            if game_state.0 == "gameover"{
+                visible.is_visible = true;
+            }
+            if visible.is_visible{
+                match *interaction{
+                    Interaction::Clicked => {
+                        text.sections[0].value = "Save to DB".to_string();
+                        *material = materials.pressed.clone();
+                        text.sections[0].style.color = Color::rgb(0.1,0.9,0.1);
+
+                    }
+                    Interaction::Hovered => {
+                        text.sections[0].value = "Save to DB".to_string();
+                        *material = materials.hovered.clone();
+                        text.sections[0].style.color = Color::rgb(0.8,0.8,0.8);
+                    }
+                    Interaction::None => {
+                        text.sections[0].value = "Save to DB".to_string();
+                        *material = materials.normal.clone();
+                        text.sections[0].style.color = Color::rgb(0.9,0.9,0.9);
+                    }
                 }
             }
         }
@@ -419,6 +413,7 @@ fn button_system(
 fn player_laser_hit_enemy(
     mut commands: Commands,
     game_state: Res<GameState>,
+    mut player_state: ResMut<PlayerState>,
     mut laser_query: Query<(Entity, &Transform, &Sprite,(With<Laser>, With<FromPlayer>))>,
     mut enemy_query: Query<(Entity, &Transform, &Sprite, With<Enemy>)>,
     mut active_enemies: ResMut<ActiveEnemies>,
@@ -448,6 +443,7 @@ fn player_laser_hit_enemy(
                     // remove the enemy
                     commands.entity(enemy_entity).despawn();
                     active_enemies.0 -= 1;
+                    player_state.score += 1;
 
                     //Spawn explosion
                     commands
