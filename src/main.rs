@@ -292,13 +292,13 @@ fn setup(mut commands: Commands,
                 is_transparent: false,
             },
             style: Style {
-                size: Size::new(Val::Px(150.0), Val::Px(65.0)),
+                size: Size::new(Val::Px(150.0), Val::Px(150.0)),
                 // center button
                 margin: Rect{
                     left: Val::Auto,
                     right: Val::Auto,
                     top: Val::Auto,
-                    bottom: Val::Px(200.0),
+                    bottom: Val::Px(100.0),
                 },
                 // horizontally center child text
                 justify_content: JustifyContent::Center,
@@ -322,7 +322,10 @@ fn setup(mut commands: Commands,
                         font_size: 40.0,
                         color: Color::rgb(0.9, 0.9, 0.9),
                     },
-                    Default::default(),
+                    TextAlignment {
+                        horizontal: HorizontalAlign::Center,
+                        ..Default::default()
+                    },
                 ),
                 ..Default::default()
             })
@@ -373,6 +376,7 @@ fn inspector_window(
 fn button_system(
     materials: Res<Materials>,
     game_state: Res<GameState>,
+    player_state: Res<PlayerState>,
     mut interaction_query: Query<
         (&Interaction, &mut Handle<ColorMaterial>, &Children),
         (Changed<Interaction>, With<ButtonSaveToDB>),
@@ -389,18 +393,19 @@ fn button_system(
             if visible.is_visible{
                 match *interaction{
                     Interaction::Clicked => {
-                        text.sections[0].value = "Save to DB".to_string();
+                        text.sections[0].value = "Name:\nScore: ".to_owned() + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
                         *material = materials.pressed.clone();
                         text.sections[0].style.color = Color::rgb(0.1,0.9,0.1);
+                        println!("pressed");
 
                     }
                     Interaction::Hovered => {
-                        text.sections[0].value = "Save to DB".to_string();
+                        text.sections[0].value = "Name:\nScore: ".to_owned()  + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
                         *material = materials.hovered.clone();
                         text.sections[0].style.color = Color::rgb(0.8,0.8,0.8);
                     }
                     Interaction::None => {
-                        text.sections[0].value = "Save to DB".to_string();
+                        text.sections[0].value = "Name:\nScore: ".to_owned()  + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
                         *material = materials.normal.clone();
                         text.sections[0].style.color = Color::rgb(0.9,0.9,0.9);
                     }
