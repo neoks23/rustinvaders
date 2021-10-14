@@ -12,6 +12,8 @@ use bevy_inspector_egui::plugin::InspectorWindows;
 use bevy::ui::widget::Image;
 use sqlx::mysql::{MySqlPoolOptions, MySqlPool};
 use futures::executor::block_on;
+use bevy_egui::{egui, EguiContext, EguiPlugin, EguiSettings};
+use bevy_egui::egui::CtxRef;
 
 const PLAYER_SPRITE: &str = "player_c_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -23,6 +25,7 @@ const SCALE: f32 = 0.5;
 const MAX_ENEMIES: u32 = 4;
 const MAX_FORMATION_MEMBERS: u32 = 2;
 const PLAYER_RESPAWN_DELAY: f64 = 2.;
+const BEVY_TEXTURE_ID: u64 = 0;
 
 pub struct Materials{
     player: Handle<ColorMaterial>,
@@ -72,6 +75,7 @@ struct PlayerState{
     on: bool,
     last_shot: f64,
     invurnerable_timer: Timer,
+    username: String,
     lifes: u32,
     score: u32,
 }
@@ -82,6 +86,7 @@ impl Default for PlayerState{
             on: false,
             last_shot: 0.,
             invurnerable_timer: Timer::from_seconds(0.0, false),
+            username: "<write down your name here>".to_string(),
             lifes: 3,
             score: 0,
         }
@@ -193,12 +198,12 @@ fn main() {
         .insert_resource(ActiveEnemies(0))
         .insert_resource(CheatSheetTimer::default())
         .add_plugins(DefaultPlugins)
+        .add_plugin(EguiPlugin)
         .init_resource::<Materials>()
         .add_plugin(PlayerPlugin)
         .add_plugin(EnemyPlugin)
         .add_plugin(InspectorPlugin::<InspectorQuery<(Entity), With<Enemy>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<PauseText>>>::new())
-        .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, With<ButtonSaveToDB>>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuery<Entity, (With<GameOverText>)>>::new())
         .add_plugin(InspectorPlugin::<InspectorQuerySingle<Entity, (With<Player>)>>::new())
         .add_startup_system(setup.system())
@@ -210,6 +215,7 @@ fn main() {
         .add_system(animate_explosion.system())
         .add_system(pause_game.system())
         .add_system(button_system.system())
+        .add_system(ui_text_box.system())
         .add_system(gameover_to_spawn.system());
 
         let mut registry = app
@@ -221,7 +227,6 @@ fn main() {
         registry.register::<PauseState>();
         registry.register::<LaserSpeed>();
         registry.register::<GameOverText>();
-        registry.register::<ButtonSaveToDB>();
 
 
         app.run();
@@ -375,10 +380,27 @@ fn inspector_window(
     }
 }
 
+fn ui_text_box(
+    mut egui_ctx: ResMut<EguiContext>,
+    mut player_state: ResMut<PlayerState>,
+    assets: Res<AssetServer>,
+    game_state: Res<GameState>,
+) {
+    if game_state.0 == "gameover" {
+        egui::Area::new("my_area")
+            .fixed_pos(egui::pos2(370.0, 450.0))
+            .show(egui_ctx.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut player_state.username);
+                });
+            });
+    }
+}
+
 fn button_system(
     materials: Res<Materials>,
     game_state: Res<GameState>,
-    player_state: Res<PlayerState>,
+    mut player_state: ResMut<PlayerState>,
     mut interaction_query: Query<
         (&Interaction, &mut Handle<ColorMaterial>, &Children),
         (Changed<Interaction>, With<ButtonSaveToDB>),
@@ -399,9 +421,12 @@ fn button_system(
                         *material = materials.pressed.clone();
                         text.sections[0].style.color = Color::rgb(0.1,0.9,0.1);
 
-                        let future = save_to_db(player_state.score);
+                        let future = save_to_db(&player_state.username, player_state.score);
 
                         block_on(future);
+
+                        "score saved!".to_string();
+
                     }
                     Interaction::Hovered => {
                         text.sections[0].value = "Name:\nScore: ".to_owned()  + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
@@ -419,10 +444,10 @@ fn button_system(
     }
 }
 
-async fn save_to_db(score: u32) -> Result<(), sqlx::Error>{
+async fn save_to_db(username: &str, score: u32) -> Result<(), sqlx::Error>{
     let pool = MySqlPoolOptions::new().max_connections(5).connect("mysql://localhost/gildaga").await?;
 
-    sqlx::query("INSERT INTO score (Username, Score) VALUES ( ?, ? )").bind("bloop").bind(score).execute(&pool).await?;
+    sqlx::query("INSERT INTO score (Username, Score) VALUES ( ?, ? )").bind(username).bind(score).execute(&pool).await?;
 
     println!("score saved!");
     Ok(())
