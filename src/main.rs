@@ -399,7 +399,7 @@ fn button_system(
                         *material = materials.pressed.clone();
                         text.sections[0].style.color = Color::rgb(0.1,0.9,0.1);
 
-                        let future = bloop(player_state.score);
+                        let future = save_to_db(player_state.score);
 
                         block_on(future);
                     }
@@ -419,14 +419,12 @@ fn button_system(
     }
 }
 
-async fn bloop(score: u32)-> Result<(), sqlx::Error>{
-    println!("bloop");
-
+async fn save_to_db(score: u32) -> Result<(), sqlx::Error>{
     let pool = MySqlPoolOptions::new().max_connections(5).connect("mysql://localhost/gildaga").await?;
-    //let pool = MySqlPool::connect("mysql://localhost/gildaga").await?;
 
     sqlx::query("INSERT INTO score (Username, Score) VALUES ( ?, ? )").bind("bloop").bind(score).execute(&pool).await?;
 
+    println!("score saved!");
     Ok(())
 }
 
