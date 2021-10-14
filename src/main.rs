@@ -11,6 +11,7 @@ use bevy_inspector_egui::widgets::{InspectorQuerySingle, InspectorQuery, Resourc
 use bevy_inspector_egui::plugin::InspectorWindows;
 use bevy::ui::widget::Image;
 use sqlx::mysql::{MySqlPoolOptions, MySqlPool};
+use futures::executor::block_on;
 
 const PLAYER_SPRITE: &str = "player_c_01.png";
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -397,7 +398,10 @@ fn button_system(
                         text.sections[0].value = "Name:\nScore: ".to_owned() + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
                         *material = materials.pressed.clone();
                         text.sections[0].style.color = Color::rgb(0.1,0.9,0.1);
-                        bloop(player_state.score);
+
+                        let future = bloop(player_state.score);
+
+                        block_on(future);
                     }
                     Interaction::Hovered => {
                         text.sections[0].value = "Name:\nScore: ".to_owned()  + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();

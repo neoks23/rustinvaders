@@ -3530,6 +3530,7 @@ dependencies = [
  "async-std",
  "bevy",
  "bevy-inspector-egui",
+ "futures",
  "rand 0.8.4",
  "sqlx",
 ]
