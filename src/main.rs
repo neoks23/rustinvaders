@@ -425,7 +425,7 @@ fn button_system(
 
                         block_on(future);
 
-                        "score saved!".to_string();
+                        println!("score saved!".to_string());
 
                     }
                     Interaction::Hovered => {
