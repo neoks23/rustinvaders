@@ -1,6 +1,6 @@
 use bevy::{core::FixedTimestep, prelude::*};
 
-use crate::{Laser, Materials, Player, PlayerReadyFire, Speed, WinSize, SCALE, TIME_STEP, FromPlayer, PlayerState, PLAYER_RESPAWN_DELAY, PauseState, GameState, LaserSpeed};
+use crate::{Laser, Materials, Player, PlayerReadyFire, Speed, WinSize, SCALE, TIME_STEP, FromPlayer, PlayerState, PLAYER_RESPAWN_DELAY, PauseState, GameState, LaserSpeed, FIRING_SFX};
 use bevy_inspector_egui::InspectableRegistry;
 
 pub struct PlayerPlugin;
@@ -86,12 +86,16 @@ fn player_movement(
 fn player_fire(
     mut commands: Commands,
     time: Res<Time>,
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>,
     kb: Res<Input<KeyCode>>,
     materials: Res<Materials>,
     mut query: Query<(&Transform,&PauseState,&LaserSpeed,&mut PlayerReadyFire, &mut Timer, With<Player>)>
 ){
     if let Ok((player_tf, pause_state,lspeed, mut ready_fire, mut timer, _)) = query.single_mut(){
         if ready_fire.0 && kb.pressed(KeyCode::Space) && !pause_state.0{
+            let music = asset_server.load(FIRING_SFX);
+            audio.play(music);
             let x = player_tf.translation.x;
             let y = player_tf.translation.y;
 

@@ -20,6 +20,10 @@ const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
 const ENEMY_SPRITE: &str = "enemy_b_01.png";
 const ENEMY_LASER_SPRITE: &str = "laser_b_01.png";
 const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
+const FIRING_SFX: &str = "Audio/Galaga_Firing_Sound_Effect.mp3";
+const KILL_SFX: &str = "Audio/Galaga_Kill_Enemy_Sound_Effect.mp3";
+const DEAD_SFX: &str = "Audio/m01se_03hit1.mp3";
+const GAMEOVER_SFX: &str = "Audio/GALAGA_NAME_ENTRY_MUSIC_ARRANGE_VERSION.mp3";
 const TIME_STEP: f32 = 1. / 60.;
 const SCALE: f32 = 0.5;
 const MAX_ENEMIES: u32 = 4;
@@ -425,7 +429,7 @@ fn button_system(
 
                         block_on(future);
 
-                        println!("score saved!".to_string());
+                        player_state.username = "score saved!".to_string();
 
                     }
                     Interaction::Hovered => {
@@ -456,6 +460,8 @@ async fn save_to_db(username: &str, score: u32) -> Result<(), sqlx::Error>{
 fn player_laser_hit_enemy(
     mut commands: Commands,
     game_state: Res<GameState>,
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>,
     mut player_state: ResMut<PlayerState>,
     mut laser_query: Query<(Entity, &Transform, &Sprite,(With<Laser>, With<FromPlayer>))>,
     mut enemy_query: Query<(Entity, &Transform, &Sprite, With<Enemy>)>,
@@ -488,6 +494,10 @@ fn player_laser_hit_enemy(
                     active_enemies.0 -= 1;
                     player_state.score += 1;
 
+                    let music = asset_server.load(KILL_SFX);
+                    audio.play(music);
+                    //Audio::play(music, ());
+
                     //Spawn explosion
                     commands
                         .spawn()
@@ -508,6 +518,8 @@ fn enemy_laser_hit_player(
     mut commands: Commands,
     mut player_state: ResMut<PlayerState>,
     mut game_state: ResMut<GameState>,
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>,
     mut pause_query: Query<(&mut Visible, (With<PauseText>))>,
     time: Res<Time>,
     laser_query: Query<(Entity, &Transform, &Sprite), (With<Laser>, With<FromEnemy>)>,
@@ -540,8 +552,13 @@ fn enemy_laser_hit_player(
                                     .insert(GameOverToSpawn);
 
                                     game_state.0 = "gameover".to_string();
+                                let music = asset_server.load(GAMEOVER_SFX);
+                                audio.play(music);
                             }
-
+                            else{
+                                let music = asset_server.load(DEAD_SFX);
+                                audio.play(music);
+                            }
                             commands.entity(laser_entity).despawn();
 
                             commands
