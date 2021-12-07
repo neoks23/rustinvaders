@@ -57,10 +57,12 @@ fn button_system(
 
                         let future = save_to_db(&player_state.username, player_state.score);
 
-                        block_on(future);
+                        let result = block_on(future);
 
-                        player_state.username = "score saved!".to_string();
-
+                        match result{
+                            Ok(_) => player_state.username = "score saved!".to_string(),
+                            Err(_) => player_state.username = "something went wrong".to_string()
+                        }
                     }
                     Interaction::Hovered => {
                         text.sections[0].value = "Name:\nScore: ".to_owned()  + player_state.score.to_string().as_str() + &"\nSave to DB".to_string();
@@ -82,7 +84,5 @@ async fn save_to_db(username: &str, score: u32) -> Result<(), sqlx::Error>{
     let pool = MySqlPoolOptions::new().max_connections(5).connect("mysql://localhost/gildaga").await?;
 
     sqlx::query("INSERT INTO score (Username, Score) VALUES ( ?, ? )").bind(username).bind(score).execute(&pool).await?;
-
-    println!("score saved!");
     Ok(())
 }

@@ -112,8 +112,6 @@ fn enemy_laser_hit_player(
                                     .insert(GameOverToSpawn);
 
                                 game_state.0 = "gameover".to_string();
-                                let music = asset_server.load(GAMEOVER_SFX);
-                                audio.play(music);
                             }
                             else{
                                 let music = asset_server.load(DEAD_SFX);
